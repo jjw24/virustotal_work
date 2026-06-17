@@ -1,0 +1,83 @@
+name: VirusTotal Scan
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize]
+    paths-ignore:
+      - ".github/workflows/**"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - ".github/workflows/**"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Download PR submitted plugin
+        if: github.event_name == 'pull_request'
+        working-directory: ${{ github.workspace }}
+        run: python ci/src/download-plugins.py --mode new --output-dir scan-files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download plugins
+        if: github.event_name != 'pull_request'
+        working-directory: ${{ github.workspace }}
+        run: python ci/src/download-plugins.py --output-dir scan-files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Restore VT cache from previous run (optional- speeds up repeat scans)
+      - uses: actions/cache/restore@v5
+        with:
+          path: vt_cache.json
+          key: vt-cache-${{ github.sha }}
+          restore-keys: vt-cache-
+
+      - uses: jjw24/virustotal-scanner-action@v1.0.1
+        with:
+          api-key: ${{ secrets.VT_API_KEY }}
+          scan-paths: |
+            ./scan-files/
+          no-cache: false
+          cache-path: vt_cache.json
+          whitelist-path: vt_whitelist.json
+          report-path: vt_report.json
+          request-interval-sec: 15
+          analysis-poll-timeout-sec: 600
+          download-timeout-sec: 120
+          max-report-age-days: 30
+
+      # Save cache for next run
+      - uses: actions/cache/save@v5
+        if: always()
+        with:
+          path: vt_cache.json
+          key: vt-cache-${{ github.sha }}
+
+      # Upload report file as raw viewable json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          path: vt_report.json
+          archive: false
+
+      # Upload cache file as raw viewable json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          path: vt_cache.json
+          archive: false
