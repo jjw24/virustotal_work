@@ -4,16 +4,24 @@ on:
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize]
-    paths-ignore:
-      - ".github/workflows/**"
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - ".github/workflows/**"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.filter.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            plugins:
+              - 'plugins/**'
+
   scan:
+    needs: changes
+    if: needs.changes.outputs.plugins == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -26,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      # Restore cached plugin ZIPs from previous runs
+      # Avoid repeat downloads which bump the plugins' download count
       - uses: actions/cache/restore@v5
         with:
           path: |
@@ -36,19 +44,16 @@ jobs:
 
       - name: Download PR submitted plugin
         if: github.event_name == 'pull_request'
-        working-directory: ${{ github.workspace }}
         run: python ci/src/download-plugins.py --mode new --output-dir scan-files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download plugins
         if: github.event_name != 'pull_request'
-        working-directory: ${{ github.workspace }}
         run: python ci/src/download-plugins.py --output-dir scan-files --cache-meta .cache-meta.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Restore VT cache from previous run (optional- speeds up repeat scans)
       - uses: actions/cache/restore@v5
         with:
           path: vt_cache.json
@@ -69,7 +74,6 @@ jobs:
           download-timeout-sec: 120
           max-report-age-days: 30
 
-      # Save caches for next run
       - uses: actions/cache/save@v5
         if: always()
         with:
@@ -84,21 +88,18 @@ jobs:
             .cache-meta.json
           key: plugin-zips-${{ github.ref }}
 
-      # Upload report file as raw viewable json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           path: vt_report.json
           archive: false
 
-      # Upload cache file as raw viewable json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           path: vt_cache.json
           archive: false
 
-      # Upload plugin download cache metadata as raw viewable json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
