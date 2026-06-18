@@ -266,9 +266,12 @@ def _load_cache_meta(path: Path) -> dict[str, Any]:
 
 
 def _save_cache_meta(path: Path, meta: dict[str, Any]) -> None:
+    first_time = not path.is_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(meta, f, indent=2)
+    if first_time:
+        print(f"Plugin download cache metadata created at {path}")
 
 
 def _expected_zip_filenames(plugins: list[dict[str, str]]) -> set[str]:
@@ -277,10 +280,16 @@ def _expected_zip_filenames(plugins: list[dict[str, str]]) -> set[str]:
 
 def _prune_orphans(output_dir: Path, expected_filenames: set[str],
                    cache_meta: dict[str, Any]) -> None:
+    pruned = []
     for f in list(output_dir.glob("*.zip")):
         if f.name not in expected_filenames:
             f.unlink()
             cache_meta.pop(f.name, None)
+            pruned.append(f.name)
+    if pruned:
+        print(f"Pruned {len(pruned)} orphaned plugin ZIP(s):")
+        for name in sorted(pruned):
+            print(f"  removed {name}")
 
 
 # ---------------------------------------------------------------------------
