@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
+      # Restore cached plugin ZIPs from previous runs
+      - uses: actions/cache/restore@v5
+        with:
+          path: scan-files/
+          key: plugin-zips-${{ github.ref }}
+
       - name: Download PR submitted plugin
         if: github.event_name == 'pull_request'
         working-directory: ${{ github.workspace }}
@@ -36,7 +42,7 @@ jobs:
       - name: Download plugins
         if: github.event_name != 'pull_request'
         working-directory: ${{ github.workspace }}
-        run: python ci/src/download-plugins.py --output-dir scan-files
+        run: python ci/src/download-plugins.py --output-dir scan-files --cache-meta scan-files/.cache-meta.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -61,12 +67,18 @@ jobs:
           download-timeout-sec: 120
           max-report-age-days: 30
 
-      # Save cache for next run
+      # Save caches for next run
       - uses: actions/cache/save@v5
         if: always()
         with:
           path: vt_cache.json
           key: vt-cache-${{ github.sha }}
+
+      - uses: actions/cache/save@v5
+        if: always()
+        with:
+          path: scan-files/
+          key: plugin-zips-${{ github.ref }}
 
       # Upload report file as raw viewable json
       - uses: actions/upload-artifact@v7
@@ -80,4 +92,11 @@ jobs:
         if: always()
         with:
           path: vt_cache.json
+          archive: false
+
+      # Upload plugin download cache metadata as raw viewable json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          path: scan-files/.cache-meta.json
           archive: false

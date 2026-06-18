@@ -15,7 +15,6 @@ import requests
 
 from _utils import (
     get_new_plugin_submission_ids,
-    github_download_url_regex,
     id_name,
     plugin_dir,
     plugin_name,
@@ -234,40 +233,12 @@ def _github_headers() -> dict[str, str]:
     return {"Authorization": f"token {token}"}
 
 
-def resolve_github_download_url(download_url: str) -> str:
-    match = github_download_url_regex.match(download_url)
-    if not match:
-        raise ValueError(f"Invalid GitHub download URL: {download_url}")
-
-    author = match.group("author")
-    repo = match.group("repo")
-    tag = match.group("version")
-    filename = match.group("filename") + ".zip"
-
-    resp = requests.get(
-        f"https://api.github.com/repos/{author}/{repo}/releases/tags/{tag}",
-        headers=_github_headers(),
-        timeout=env_int("DOWNLOAD_TIMEOUT_SEC", 120),
-    )
-    resp.raise_for_status()
-    for asset in resp.json().get("assets", []):
-        if asset["name"] == filename:
-            return asset["browser_download_url"]
-    return resp.json()["assets"][0]["browser_download_url"]
-
-
 def download_plugin(plugin: dict[str, str], dest: Path) -> None:
-    url = plugin.get(url_download, "")
-    if not url:
-        raise ValueError("missing UrlDownload")
-
-    resolved = resolve_github_download_url(url)
-    if resolved != url:
-        print(f"Resolved: {url} -> {resolved}")
+    url = plugin[url_download]
 
     timeout = env_int("DOWNLOAD_TIMEOUT_SEC", 120)
     headers = _github_headers()
-    with requests.get(resolved, headers=headers, timeout=timeout, stream=True) as resp:
+    with requests.get(url, headers=headers, timeout=timeout, stream=True) as resp:
         resp.raise_for_status()
         with open(dest, "wb") as f:
             for chunk in resp.iter_content(chunk_size=1024 * 256):
@@ -284,24 +255,61 @@ def sha256_file(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Cache helpers
+# ---------------------------------------------------------------------------
+
+def _load_cache_meta(path: Path) -> dict[str, Any]:
+    if path.is_file():
+        with open(path, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_cache_meta(path: Path, meta: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(meta, f, indent=2)
+
+
+def _expected_zip_filenames(plugins: list[dict[str, str]]) -> set[str]:
+    return {manifest_filename(p).replace(".json", "") + ".zip" for p in plugins}
+
+
+def _prune_orphans(output_dir: Path, expected_filenames: set[str],
+                   cache_meta: dict[str, Any]) -> None:
+    for f in list(output_dir.glob("*.zip")):
+        if f.name not in expected_filenames:
+            f.unlink()
+            cache_meta.pop(f.name, None)
+
+
+# ---------------------------------------------------------------------------
 # Download step
 # ---------------------------------------------------------------------------
 
 def download_all(
     plugins: list[dict[str, str]],
     output_dir: Path,
+    cache_meta_path: Optional[Path] = None,
 ) -> dict[str, tuple[Path, Optional[str]]]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    cache_meta = _load_cache_meta(cache_meta_path) if cache_meta_path else {}
     workers = env_int("DOWNLOAD_WORKERS", DOWNLOAD_WORKERS)
     out: dict[str, tuple[Path, Optional[str]]] = {}
 
     def task(plugin: dict[str, str]) -> tuple[str, Path, Optional[str]]:
         pid = plugin[id_name]
         dest = output_dir / f"{manifest_filename(plugin).replace('.json', '')}.zip"
+        filename = dest.name
+        cached = cache_meta.get(filename)
+        if cached and cached.get("version") == plugin.get(version) and dest.exists():
+            print(f"  SKIP {pid}: up-to-date (v{cached['version']})")
+            return pid, dest, None
         try:
             if not plugin.get(url_download):
                 raise ValueError("missing UrlDownload")
             download_plugin(plugin, dest)
+            cache_meta[filename] = {"version": plugin.get(version, "")}
             return pid, dest, None
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
@@ -314,6 +322,12 @@ def download_all(
         for fut in as_completed(futures):
             pid, dest, err = fut.result()
             out[pid] = (dest, err)
+
+    expected_filenames = _expected_zip_filenames(plugins)
+    _prune_orphans(output_dir, expected_filenames, cache_meta)
+
+    if cache_meta_path:
+        _save_cache_meta(cache_meta_path, cache_meta)
 
     total = len(plugins)
     ok = sum(1 for v in out.values() if v[1] is None)
@@ -369,6 +383,8 @@ def main() -> None:
                         help="Number of plugins to download (0 = all remaining from --start)")
     parser.add_argument("--output-dir", default=None,
                         help="Output directory (default: plugin_downloads, falls back to OUTPUT_DIR env var)")
+    parser.add_argument("--cache-meta", default=None,
+                        help="Path to cache metadata JSON; skips download if cached version matches manifest")
     args = parser.parse_args()
 
     if args.plugins is None:
@@ -412,7 +428,8 @@ def main() -> None:
     if start > 0 or count > 0:
         print(f"Downloading plugins {start}-{start + len(plugins) - 1} of {meta.get('total_plugins', '?')}")
 
-    download_all(plugins, output_dir)
+    cache_meta_path = Path(args.cache_meta) if args.cache_meta else None
+    download_all(plugins, output_dir, cache_meta_path=cache_meta_path)
 
 
 if __name__ == "__main__":
