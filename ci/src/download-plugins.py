@@ -306,31 +306,31 @@ def download_all(
     workers = env_int("DOWNLOAD_WORKERS", DOWNLOAD_WORKERS)
     out: dict[str, tuple[Path, Optional[str]]] = {}
 
-    def task(plugin: dict[str, str]) -> tuple[str, Path, Optional[str]]:
+    def task(plugin: dict[str, str]) -> tuple[str, Path, Optional[str], Optional[str]]:
         pid = plugin[id_name]
         dest = output_dir / f"{manifest_filename(plugin).replace('.json', '')}.zip"
         filename = dest.name
         cached = cache_meta.get(filename)
         if cached and cached.get("version") == plugin.get(version) and dest.exists():
-            print(f"  SKIP {pid}: up-to-date (v{cached['version']})")
-            return pid, dest, None
+            return pid, dest, None, f"up-to-date (v{cached['version']})"
         try:
             if not plugin.get(url_download):
                 raise ValueError("missing UrlDownload")
             download_plugin(plugin, dest)
             cache_meta[filename] = {"version": plugin.get(version, "")}
-            return pid, dest, None
+            status = f"updated (v{cached['version']} -> v{plugin.get(version, '')})" if cached else "fresh"
+            return pid, dest, None, status
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
             if isinstance(e, requests.HTTPError) and e.response is not None:
                 err = f"HTTP {e.response.status_code} {plugin.get(url_download, '')} {e}"
-            return pid, dest, err
+            return pid, dest, err, None
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(task, p): p for p in plugins}
         for fut in as_completed(futures):
-            pid, dest, err = fut.result()
-            out[pid] = (dest, err)
+            pid, dest, err, status = fut.result()
+            out[pid] = (dest, err, status)
 
     expected_filenames = _expected_zip_filenames(plugins)
     _prune_orphans(output_dir, expected_filenames, cache_meta)
@@ -341,13 +341,17 @@ def download_all(
     total = len(plugins)
     ok = sum(1 for v in out.values() if v[1] is None)
     failed = total - ok
-    print(f"\nDownloaded {ok}/{total} plugins" + (f" ({failed} failed)" if failed else ""))
-    for pid, (dest, err) in out.items():
+    print(f"\nProcessed {ok}/{total} plugins" + (f" ({failed} failed)" if failed else ""))
+    for pid, (dest, err, status) in out.items():
         if err:
             print(f"  FAIL {pid}: {err}")
+        elif status and status.startswith("up-to-date"):
+            print(f"  Cached {pid}: {status}")
+        elif status and status.startswith("updated"):
+            print(f"  Cached {pid}: {status}")
         else:
             sha = sha256_file(dest)
-            print(f"  OK   {pid} -> {dest.name} sha256={sha[:12]}...")
+            print(f"  Downloaded {pid} -> {dest.name} sha256={sha[:12]}...")
     return out
 
 
