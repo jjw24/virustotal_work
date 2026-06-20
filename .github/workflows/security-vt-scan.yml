@@ -9,10 +9,15 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      plugins: ${{ steps.filter.outputs.plugins }}
+      plugins: ${{ steps.filter.outputs.plugins || steps.check.outputs.plugins }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - name: Check out repository code
+        uses: actions/checkout@v6
+      - id: check
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "plugins=true" >> "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@v4
+        if: github.event_name != 'workflow_dispatch'
         id: filter
         with:
           filters: |
@@ -24,7 +29,8 @@ jobs:
     if: needs.changes.outputs.plugins == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out repository code
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -35,32 +41,38 @@ jobs:
         run: pip install requests
 
       # Avoid repeat downloads which bump the plugins' download count
-      - uses: actions/cache/restore@v5
+      - name: Restore downloaded plugin cache
+        uses: actions/cache/restore@v5
+        # No need to restore cache, PR's plugin is downloaded and scanned each time.
+        # Plugin dev may repeatedly only update one version
+        if: github.event_name != 'pull_request'
         with:
           path: |
             scan-files/
             .cache-meta.json
           key: plugin-zips-${{ github.ref }}
 
-      - name: Download PR submitted plugin
+      - name: Download plugin submitted in this PR
         if: github.event_name == 'pull_request'
         run: python ci/src/download-plugins.py --mode new --output-dir scan-files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download plugins
+      - name: Download all plugins with cache metadata
         if: github.event_name != 'pull_request'
         run: python ci/src/download-plugins.py --output-dir scan-files --cache-meta .cache-meta.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/cache/restore@v5
+      - name: Restore VirusTotal scan cache from previous runs
+        uses: actions/cache/restore@v5
         with:
           path: vt_cache.json
           key: vt-cache-${{ github.sha }}
           restore-keys: vt-cache-
 
-      - uses: jjw24/virustotal-scanner-action@v1.0.1
+      - name: Run VirusTotal scan
+        uses: jjw24/virustotal-scanner-action@v1.0.1
         with:
           api-key: ${{ secrets.VT_API_KEY }}
           scan-paths: |
@@ -74,13 +86,15 @@ jobs:
           download-timeout-sec: 120
           max-report-age-days: 30
 
-      - uses: actions/cache/save@v5
+      - name: Save VirusTotal scan cache for future runs
+        uses: actions/cache/save@v5
         if: always()
         with:
           path: vt_cache.json
           key: vt-cache-${{ github.sha }}
 
-      - uses: actions/cache/save@v5
+      - name: Save plugin ZIPs and cache metadata for future runs
+        uses: actions/cache/save@v5
         if: always()
         with:
           path: |
@@ -88,20 +102,23 @@ jobs:
             .cache-meta.json
           key: plugin-zips-${{ github.ref }}
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload VirusTotal scan report as viewable artifact
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           path: vt_report.json
           archive: false
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload VirusTotal scan cache as viewable artifact
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           path: vt_cache.json
           archive: false
 
-      - uses: actions/upload-artifact@v7
-        if: always()
+      - name: Upload plugin download cache metadata as viewable artifact
+        uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
         with:
           path: .cache-meta.json
           archive: false
