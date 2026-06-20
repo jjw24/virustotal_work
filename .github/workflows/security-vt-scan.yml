@@ -96,7 +96,8 @@ jobs:
 
       - name: Save plugin ZIPs and cache metadata for future runs
         uses: actions/cache/save@v5
-        if: github.event_name != 'pull_request'
+        # Upload even if scan fails
+        if: always() && github.event_name != 'pull_request'
         with:
           path: |
             scan-files/
@@ -119,7 +120,8 @@ jobs:
 
       - name: Upload plugin download cache metadata as viewable artifact
         uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
+        # Upload even if scan fails
+        if: always() && github.event_name != 'pull_request'
         with:
           path: plugin-download-cache.json
           archive: false
