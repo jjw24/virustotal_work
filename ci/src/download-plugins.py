@@ -344,14 +344,14 @@ def download_all(
     print(f"\nProcessed {ok}/{total} plugins" + (f" ({failed} failed)" if failed else ""))
     for pid, (dest, err, status) in out.items():
         if err:
-            print(f"  FAIL {pid}: {err}")
+            print(f"  FAIL {dest.name}: {err}")
         elif status and status.startswith("up-to-date"):
-            print(f"  Cached {pid}: {status}")
+            print(f"  From cache -> {dest.name}: {status}")
         elif status and status.startswith("updated"):
-            print(f"  Cached {pid}: {status}")
+            print(f"  From cache -> {dest.name}: {status}")
         else:
             sha = sha256_file(dest)
-            print(f"  Downloaded {pid} -> {dest.name} sha256={sha[:12]}...")
+            print(f"  Downloaded {dest.name} sha256={sha[:12]}...")
     return out
 
 
