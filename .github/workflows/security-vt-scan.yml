@@ -50,7 +50,8 @@ jobs:
           path: |
             scan-files/
             .cache-meta.json
-          key: plugin-zips-${{ github.ref }}
+          key: plugin-zips-${{ github.sha }}
+          restore-keys: plugin-zips-
 
       - name: Download plugin submitted in this PR
         if: github.event_name == 'pull_request'
@@ -95,12 +96,12 @@ jobs:
 
       - name: Save plugin ZIPs and cache metadata for future runs
         uses: actions/cache/save@v5
-        if: always()
+        if: github.event_name != 'pull_request'
         with:
           path: |
             scan-files/
             .cache-meta.json
-          key: plugin-zips-${{ github.ref }}
+          key: plugin-zips-${{ github.sha }}
 
       - name: Upload VirusTotal scan report as viewable artifact
         uses: actions/upload-artifact@v7
