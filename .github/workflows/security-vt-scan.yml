@@ -49,7 +49,7 @@ jobs:
         with:
           path: |
             scan-files/
-            .cache-meta.json
+            plugin-download-cache.json
           key: plugin-zips-${{ github.sha }}
           restore-keys: plugin-zips-
 
@@ -61,7 +61,7 @@ jobs:
 
       - name: Download all plugins with cache metadata
         if: github.event_name != 'pull_request'
-        run: python ci/src/download-plugins.py --output-dir scan-files --cache-meta .cache-meta.json
+        run: python ci/src/download-plugins.py --output-dir scan-files --cache-meta plugin-download-cache.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -100,7 +100,7 @@ jobs:
         with:
           path: |
             scan-files/
-            .cache-meta.json
+            plugin-download-cache.json
           key: plugin-zips-${{ github.sha }}
 
       - name: Upload VirusTotal scan report as viewable artifact
@@ -121,5 +121,5 @@ jobs:
         uses: actions/upload-artifact@v7
         if: github.event_name != 'pull_request'
         with:
-          path: .cache-meta.json
+          path: plugin-download-cache.json
           archive: false
