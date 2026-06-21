@@ -64,6 +64,8 @@ jobs:
 
       - name: Restore VirusTotal scan cache from previous runs
         uses: actions/cache/restore@v5
+        # Don't use cache, upload/retrieve report from VirustTotal each time for new submissions
+        if: github.event_name != 'pull_request'
         with:
           path: vt_cache.json
           key: vt-cache-restore-not-used
@@ -86,7 +88,8 @@ jobs:
 
       - name: Save VirusTotal scan cache for future runs
         uses: actions/cache/save@v5
-        if: always()
+        # Cache not used for PR plugin submissions
+        if: always() && github.event_name != 'pull_request'
         with:
           path: vt_cache.json
           key: vt-cache-${{ hashFiles('vt_cache.json') }}
@@ -110,7 +113,8 @@ jobs:
 
       - name: Upload VirusTotal scan cache as viewable artifact
         uses: actions/upload-artifact@v7
-        if: always()
+        # Cache not used for PR plugin submissions
+        if: always() && github.event_name != 'pull_request'
         with:
           path: vt_cache.json
           archive: false
