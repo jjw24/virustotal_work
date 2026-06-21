@@ -30,6 +30,15 @@ DOWNLOAD_WORKERS = 8
 # ---------------------------------------------------------------------------
 
 def env_int(name: str, default: int) -> int:
+    """Read an integer from an environment variable.
+
+    Args:
+        name: Name of the environment variable.
+        default: Value to return if the variable is unset or empty.
+
+    Returns:
+        The integer value of the environment variable, or the default.
+    """
     val = os.getenv(name, "")
     if not val:
         return default
@@ -41,14 +50,38 @@ def env_int(name: str, default: int) -> int:
 # ---------------------------------------------------------------------------
 
 def manifest_filename(plugin: dict[str, str]) -> str:
+    """Build the manifest filename for a plugin.
+
+    Args:
+        plugin: A plugin dictionary containing ``Name`` and ``ID`` keys.
+
+    Returns:
+        A string in the format ``{Name}-{ID}.json``.
+    """
     return f"{plugin[plugin_name]}-{plugin[id_name]}.json"
 
 
 def stable_sort_plugins(plugins: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return plugins sorted by (name, ID) case-insensitively.
+
+    Args:
+        plugins: List of plugin dictionaries.
+
+    Returns:
+        A new sorted list of plugins.
+    """
     return sorted(plugins, key=lambda p: (p.get(plugin_name, "").lower(), p.get(id_name, "").lower()))
 
 
 def parse_plugin_tokens(raw: str) -> list[str]:
+    """Split a comma-or-newline-separated string into stripped tokens.
+
+    Args:
+        raw: Raw comma/newline-separated input.
+
+    Returns:
+        List of non-empty stripped tokens.
+    """
     tokens = []
     for part in raw.replace("\n", ",").split(","):
         part = part.strip()
@@ -58,6 +91,18 @@ def parse_plugin_tokens(raw: str) -> list[str]:
 
 
 def load_plugins_by_manifest_names(filenames: list[str]) -> list[dict[str, str]]:
+    """Load plugin dicts from manifest JSON files by filename.
+
+    Args:
+        filenames: List of ``.json`` filenames in the plugin directory.
+
+    Raises:
+        SystemExit: If any filename does not end in ``.json`` or its
+            corresponding file does not exist.
+
+    Returns:
+        List of parsed plugin dictionaries.
+    """
     plugins = []
     missing = []
     for token in filenames:
@@ -80,8 +125,15 @@ def load_plugins_by_manifest_names(filenames: list[str]) -> list[dict[str, str]]
 # ---------------------------------------------------------------------------
 
 class PluginSelector(ABC):
+    """Abstract strategy for selecting which plugins to download."""
+
     @abstractmethod
     def select(self) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        """Return the selected plugins and associated metadata.
+
+        Returns:
+            A tuple of ``(plugins, metadata_dict)``.
+        """
         ...
 
 
@@ -92,6 +144,25 @@ def resolve_batch(
     batch_index: Optional[int] = None,
     plugins_per_batch: Optional[int] = None,
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    """Partition a sorted plugin list into batches and return one batch.
+
+    When ``plugins_per_batch`` is provided the total number of batches is
+    derived from it; otherwise ``batch_count`` is used (default 1).
+    When ``batch_index`` is omitted the current UTC day number is used.
+
+    Args:
+        plugins: Full list of plugin dictionaries (will be sorted internally).
+        batch_count: Desired number of batches (ignored if
+            ``plugins_per_batch`` is set).
+        batch_index: Index of the batch to return.  ``None`` uses a
+            time-based index for round-robin scheduling across days.
+        plugins_per_batch: Fixed number of plugins per batch.
+
+    Returns:
+        Tuple of ``(selected_plugins, metadata_dict)`` where metadata
+        includes keys such as ``total_plugins``, ``batch_count``,
+        ``batch_index``, ``batch_size``, etc.
+    """
     sorted_plugins = stable_sort_plugins(plugins)
     total = len(sorted_plugins)
     meta: dict[str, Any] = {"total_plugins": total}
@@ -129,6 +200,8 @@ def resolve_batch(
 
 
 class BatchPluginSelector(PluginSelector):
+    """Select all plugins, optionally sub-divided into batches."""
+
     def __init__(
         self,
         batch_count: Optional[int] = None,
@@ -141,6 +214,11 @@ class BatchPluginSelector(PluginSelector):
         self._plugins_per_batch = plugins_per_batch
 
     def select(self) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        """Load all manifests and resolve the current batch.
+
+        Returns:
+            Tuple of ``(plugins, metadata_dict)``.
+        """
         from _utils import plugin_reader
 
         all_plugins = plugin_reader()
@@ -165,10 +243,17 @@ class BatchPluginSelector(PluginSelector):
 
 
 class NewPluginSelector(PluginSelector):
+    """Select only newly-submitted plugins (not yet in ``plugins.json``)."""
+
     def __init__(self, **_kwargs: Any) -> None:
         pass
 
     def select(self) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        """Select plugins whose IDs are absent from the published index.
+
+        Returns:
+            Tuple of ``(new_plugins, metadata_dict)``.
+        """
         ids = get_new_plugin_submission_ids()
         from _utils import plugin_reader
         by_id = {p[id_name]: p for p in plugin_reader()}
@@ -182,10 +267,20 @@ class NewPluginSelector(PluginSelector):
 
 
 class SpecificPluginSelector(PluginSelector):
+    """Select plugins by explicit manifest filenames."""
+
     def __init__(self, raw: str = "", **_kwargs: Any) -> None:
         self._raw = raw
 
     def select(self) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        """Parse the raw token string and load the corresponding manifests.
+
+        Raises:
+            SystemExit: If the token string is empty.
+
+        Returns:
+            Tuple of ``(plugins, metadata_dict)``.
+        """
         if not self._raw.strip():
             raise SystemExit("MANIFEST_ERROR: --plugins or PLUGINS env var required for mode=plugins")
         plugins = load_plugins_by_manifest_names(parse_plugin_tokens(self._raw))
@@ -198,10 +293,20 @@ class SpecificPluginSelector(PluginSelector):
 
 
 class PluginSelectorRegistry:
+    """Registry mapping mode names to ``PluginSelector`` implementations."""
+
     _selectors: dict[str, type[PluginSelector]] = {}
 
     @classmethod
     def register(cls, mode: str) -> Any:
+        """Decorator that registers a selector class for the given mode.
+
+        Args:
+            mode: Mode name (e.g. ``"batch"``, ``"new"``, ``"plugins"``).
+
+        Returns:
+            A decorator that registers the class and returns it unchanged.
+        """
         def decorator(selector_cls: type[PluginSelector]) -> type[PluginSelector]:
             cls._selectors[mode] = selector_cls
             return selector_cls
@@ -209,6 +314,18 @@ class PluginSelectorRegistry:
 
     @classmethod
     def create(cls, mode: str, **kwargs: Any) -> PluginSelector:
+        """Factory: instantiate the selector registered for *mode*.
+
+        Args:
+            mode: Mode name.
+            **kwargs: Forwarded to the selector's constructor.
+
+        Raises:
+            SystemExit: If *mode* is not registered.
+
+        Returns:
+            A ``PluginSelector`` instance.
+        """
         selector_cls = cls._selectors.get(mode)
         if selector_cls is None:
             raise SystemExit(f"Unknown mode: {mode}")
@@ -216,6 +333,11 @@ class PluginSelectorRegistry:
 
     @classmethod
     def available_modes(cls) -> list[str]:
+        """List all registered mode names.
+
+        Returns:
+            Sorted list of mode strings.
+        """
         return list(cls._selectors.keys())
 
 
@@ -229,11 +351,26 @@ PluginSelectorRegistry.register("plugins")(SpecificPluginSelector)
 # ---------------------------------------------------------------------------
 
 def _github_headers() -> dict[str, str]:
+    """Build authorization headers for GitHub API requests.
+
+    Returns:
+        A dict with an ``Authorization`` header set to a ``token``-type
+        GitHub PAT, or an empty dict if ``GITHUB_TOKEN`` is not set.
+    """
     token = os.getenv("GITHUB_TOKEN", "")
     return {"Authorization": f"token {token}"}
 
 
 def download_plugin(plugin: dict[str, str], dest: Path) -> None:
+    """Download a plugin ZIP to *dest*.
+
+    Args:
+        plugin: Plugin dictionary containing ``UrlDownload``.
+        dest: Local path where the ZIP is saved.
+
+    Raises:
+        requests.HTTPError: On non-2xx HTTP responses.
+    """
     url = plugin[url_download]
 
     timeout = env_int("DOWNLOAD_TIMEOUT_SEC", 120)
@@ -247,6 +384,14 @@ def download_plugin(plugin: dict[str, str], dest: Path) -> None:
 
 
 def sha256_file(path: Path) -> str:
+    """Compute the SHA-256 hex digest of a file.
+
+    Args:
+        path: Path to the file.
+
+    Returns:
+        Lower-case hex digest string.
+    """
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -259,6 +404,14 @@ def sha256_file(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 def _load_cache_meta(path: Path) -> dict[str, Any]:
+    """Load cache metadata from a JSON file.
+
+    Args:
+        path: Path to the cache metadata file.
+
+    Returns:
+        Deserialised dictionary, or an empty dict if the file does not exist.
+    """
     if path.is_file():
         with open(path, "r") as f:
             return json.load(f)
@@ -266,6 +419,12 @@ def _load_cache_meta(path: Path) -> dict[str, Any]:
 
 
 def _save_cache_meta(path: Path, meta: dict[str, Any]) -> None:
+    """Persist cache metadata to a JSON file.
+
+    Args:
+        path: Destination path.
+        meta: Metadata dictionary to serialise.
+    """
     first_time = not path.is_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
@@ -275,11 +434,28 @@ def _save_cache_meta(path: Path, meta: dict[str, Any]) -> None:
 
 
 def _expected_zip_filenames(plugins: list[dict[str, str]]) -> set[str]:
+    """Compute the set of expected ZIP filenames for the given plugins.
+
+    Args:
+        plugins: List of plugin dictionaries.
+
+    Returns:
+        Set of ``{Name}-{ID}.zip`` strings.
+    """
     return {manifest_filename(p).replace(".json", "") + ".zip" for p in plugins}
 
 
 def _prune_orphans(output_dir: Path, expected_filenames: set[str],
                    cache_meta: dict[str, Any]) -> None:
+    """Remove ZIP files in *output_dir* not in *expected_filenames*.
+
+    Also removes the corresponding entries from *cache_meta*.
+
+    Args:
+        output_dir: Directory containing downloaded ZIP files.
+        expected_filenames: Set of filenames that should be kept.
+        cache_meta: In-memory cache metadata dict (mutated in-place).
+    """
     pruned = []
     for f in list(output_dir.glob("*.zip")):
         if f.name not in expected_filenames:
@@ -301,6 +477,19 @@ def download_all(
     output_dir: Path,
     cache_meta_path: Optional[Path] = None,
 ) -> dict[str, tuple[Path, Optional[str]]]:
+    """Download all plugin ZIPs in parallel.
+
+    Skips plugins whose cached version matches the manifest version.
+    Prunes orphan ZIPs and updates the cache metadata.
+
+    Args:
+        plugins: List of plugin dictionaries to download.
+        output_dir: Directory to write ZIP files into.
+        cache_meta_path: Optional path to a JSON cache metadata file.
+
+    Returns:
+        Dict mapping plugin ID to ``(dest_path, error_or_None)``.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_meta = _load_cache_meta(cache_meta_path) if cache_meta_path else {}
     workers = env_int("DOWNLOAD_WORKERS", DOWNLOAD_WORKERS)
@@ -360,6 +549,16 @@ def download_all(
 # ---------------------------------------------------------------------------
 
 def resolve_batch_config(args: argparse.Namespace) -> tuple[Optional[int], Optional[int], Optional[int]]:
+    """Resolve batch parameters from CLI args and environment variables.
+
+    Priority: CLI argument > environment variable.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Tuple of ``(batch_count, batch_index, plugins_per_batch)``.
+    """
     batch_count = args.batch_count
     if batch_count is None and os.getenv("BATCH_COUNT"):
         batch_count = int(os.getenv("BATCH_COUNT", "1"))
@@ -379,6 +578,7 @@ def resolve_batch_config(args: argparse.Namespace) -> tuple[Optional[int], Optio
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """Parse CLI arguments and orchestrate the download workflow."""
     parser = argparse.ArgumentParser(description="Download Flow Launcher plugin zips")
     parser.add_argument("--mode", default=None, choices=PluginSelectorRegistry.available_modes(),
                         help="Selection mode (falls back to MODE env var, defaults to batch)")
