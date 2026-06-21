@@ -50,7 +50,6 @@ jobs:
           path: |
             scan-files/
             plugin-download-cache.json
-          key: plugin-zips-${{ github.sha }}
           restore-keys: plugin-zips-
 
       - name: Download plugin submitted in this PR
@@ -69,7 +68,6 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: vt_cache.json
-          key: vt-cache-${{ github.sha }}
           restore-keys: vt-cache-
 
       - name: Run VirusTotal scan
@@ -92,7 +90,7 @@ jobs:
         if: always()
         with:
           path: vt_cache.json
-          key: vt-cache-${{ github.sha }}
+          key: vt-cache-${{ hashFiles('vt_cache.json') }}
 
       - name: Save plugin ZIPs and cache metadata for future runs
         uses: actions/cache/save@v5
@@ -102,7 +100,7 @@ jobs:
           path: |
             scan-files/
             plugin-download-cache.json
-          key: plugin-zips-${{ github.sha }}
+          key: plugin-zips-${{ hashFiles('plugin-download-cache.json') }}
 
       - name: Upload VirusTotal scan report as viewable artifact
         uses: actions/upload-artifact@v7
