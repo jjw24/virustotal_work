@@ -9,13 +9,10 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      plugins: ${{ steps.filter.outputs.plugins || steps.check.outputs.plugins }}
+      plugins: ${{ steps.filter.outputs.plugins }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v6
-      - id: check
-        if: github.event_name == 'workflow_dispatch'
-        run: echo "plugins=true" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@v4
         if: github.event_name != 'workflow_dispatch'
         id: filter
