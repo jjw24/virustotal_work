@@ -1,4 +1,51 @@
-"""Download plugins from Flow Launcher plugin manifest files."""
+"""Download Flow Launcher plugin ZIPs from their GitHub release URLs.
+
+This script reads plugin manifest JSON files from the ``plugins/``
+directory and downloads each plugin's ``UrlDownload`` ZIP into an output
+directory.  It supports three selection modes, optional batch processing,
+and a local metadata cache to avoid re-downloading unchanged versions.
+
+Selection modes (``--mode``):
+    batch       Download all plugins, optionally split across multiple
+                CI workflow runs using ``--batch-count`` /
+                ``--batch-index`` or ``--plugins-per-batch`` (default).
+    new         Download only plugins whose IDs are not yet in the
+                published ``plugins.json`` index.
+    plugins     Download one or more specific plugins listed by their
+                manifest filename (``--plugins Name-ID.json,...``).
+
+Usage examples:
+
+    # Download all plugins (default batch mode, single batch)
+    python ci/src/download-plugins.py
+
+    # Download 1 of 4 batches.  Each day picks a different batch
+    # (UTC day % 4), so all plugins are covered over 4 days.
+    python ci/src/download-plugins.py --batch-count 4
+
+    # Download only newly submitted plugins
+    python ci/src/download-plugins.py --mode new
+
+    # Download one specific plugin
+    python ci/src/download-plugins.py --plugins FooPlugin-abc123.json
+
+    # Download plugins 100-199 out of the full sorted list
+    python ci/src/download-plugins.py --start 100 --count 100
+
+    # Use a cache metadata file to skip unchanged downloads
+    python ci/src/download-plugins.py --cache-meta cache.json
+
+Environment variables:
+    GITHUB_TOKEN         Required.  GitHub PAT with ``repo`` scope.
+    MODE                 Fallback for ``--mode``.
+    PLUGINS              Fallback for ``--plugins``.
+    BATCH_COUNT          Fallback for ``--batch-count``.
+    BATCH_INDEX          Fallback for ``--batch-index``.
+    PLUGINS_PER_BATCH    Fallback for ``--plugins-per-batch``.
+    OUTPUT_DIR           Fallback for ``--output-dir`` (default: plugin_downloads).
+    DOWNLOAD_WORKERS     Max concurrent downloads (default: 8).
+    DOWNLOAD_TIMEOUT_SEC HTTP request timeout in seconds (default: 120).
+"""
 
 import argparse
 import hashlib
@@ -154,8 +201,9 @@ def resolve_batch(
         plugins: Full list of plugin dictionaries (will be sorted internally).
         batch_count: Desired number of batches (ignored if
             ``plugins_per_batch`` is set).
-        batch_index: Index of the batch to return.  ``None`` uses a
-            time-based index for round-robin scheduling across days.
+        batch_index: Index of the batch to return.  ``None`` uses
+            ``(UTC_day_number % batch_count)`` so each day picks a
+            different batch, cycling through all batches over time.
         plugins_per_batch: Fixed number of plugins per batch.
 
     Returns:
