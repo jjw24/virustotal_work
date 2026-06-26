@@ -16,7 +16,7 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name == 'pull_request'
         id: filter
         with:
           filters: |
