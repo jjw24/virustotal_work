@@ -25,7 +25,6 @@ Environment variables:
 """
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -34,7 +33,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import requests
-from _utils import get_new_plugin_submission_ids, id_name, plugin_name, plugin_reader, url_download, version
+from _utils import get_new_plugin_submission_ids, id_name, plugin_name, plugin_reader, sha256_file, url_download, version
 
 DOWNLOAD_WORKERS = 8
 
@@ -83,7 +82,7 @@ def manifest_filename(plugin: dict[str, str]) -> str:
 
 
 def select_new_plugins() -> tuple[list[dict[str, str]], dict[str, Any]]:
-    """Select plugins whose IDs are absent from the published index.
+    """Select plugins whose IDs are absent from plugins.json.
 
     Returns:
         Tuple of ``(new_plugins, metadata_dict)``.
@@ -105,7 +104,7 @@ def select_new_plugins() -> tuple[list[dict[str, str]], dict[str, Any]]:
 
 
 def download_plugin(plugin: dict[str, str], dest: Path) -> None:
-    """Download a plugin ZIP to *dest*.
+    """Download a plugin ZIP to destination path.
 
     Args:
         plugin: Plugin dictionary containing ``UrlDownload``.
@@ -123,22 +122,6 @@ def download_plugin(plugin: dict[str, str], dest: Path) -> None:
             for chunk in resp.iter_content(chunk_size=1024 * 256):
                 if chunk:
                     f.write(chunk)
-
-
-def sha256_file(path: Path) -> str:
-    """Compute the SHA-256 hex digest of a file.
-
-    Args:
-        path: Path to the file.
-
-    Returns:
-        Lower-case hex digest string.
-    """
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 # ---------------------------------------------------------------------------
