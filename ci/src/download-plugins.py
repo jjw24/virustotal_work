@@ -88,8 +88,8 @@ def select_new_plugins() -> tuple[list[dict[str, str]], dict[str, Any]]:
         Tuple of ``(new_plugins, metadata_dict)``.
     """
     ids = get_new_plugin_submission_ids()
-    by_id = {p[id_name]: p for p in plugin_reader()}
-    plugins = [by_id[i] for i in ids if i in by_id]
+    by_id = {plugin[id_name]: plugin for plugin in plugin_reader()}
+    plugins = [by_id[plugin_id] for plugin_id in ids if plugin_id in by_id]
     meta: dict[str, Any] = {"mode": "new", "new_submissions": len(plugins)}
     if not plugins:
         print("No new plugin submissions to download")
@@ -118,10 +118,10 @@ def download_plugin(plugin: dict[str, str], dest: Path) -> None:
     timeout = env_int("DOWNLOAD_TIMEOUT_SEC", 120)
     with requests.get(url, timeout=timeout, stream=True) as resp:
         resp.raise_for_status()
-        with open(dest, "wb") as f:
+        with open(dest, "wb") as zip_file:
             for chunk in resp.iter_content(chunk_size=1024 * 256):
                 if chunk:
-                    f.write(chunk)
+                    zip_file.write(chunk)
 
 
 # ---------------------------------------------------------------------------
@@ -139,8 +139,8 @@ def _load_cache_meta(path: Path) -> dict[str, Any]:
         Deserialised dictionary, or an empty dict if the file does not exist.
     """
     if path.is_file():
-        with open(path, "r") as f:
-            return json.load(f)
+        with open(path, "r") as cache_file:
+            return json.load(cache_file)
     return {}
 
 
@@ -153,8 +153,8 @@ def _save_cache_meta(path: Path, meta: dict[str, Any]) -> None:
     """
     first_time = not path.is_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(meta, f, indent=2)
+    with open(path, "w") as cache_file:
+        json.dump(meta, cache_file, indent=2)
     if first_time:
         print(f"Plugin download cache metadata created at {path}")
 
@@ -168,13 +168,14 @@ def _expected_zip_filenames(plugins: list[dict[str, str]]) -> set[str]:
     Returns:
         Set of ``{Name}-{ID}.zip`` strings.
     """
-    return {manifest_filename(p).replace(".json", "") + ".zip" for p in plugins}
+    return {manifest_filename(plugin).replace(".json", "") + ".zip" for plugin in plugins}
 
 
 def _prune_orphans(output_dir: Path, expected_filenames: set[str], cache_meta: dict[str, Any]) -> None:
     """Remove ZIP files in *output_dir* not in *expected_filenames*.
-
     Also removes the corresponding entries from *cache_meta*.
+
+    This ensures we do not upload orphaned files as cache
 
     Args:
         output_dir: Directory containing downloaded ZIP files.
@@ -182,11 +183,11 @@ def _prune_orphans(output_dir: Path, expected_filenames: set[str], cache_meta: d
         cache_meta: In-memory cache metadata dict (mutated in-place).
     """
     pruned = []
-    for f in list(output_dir.glob("*.zip")):
-        if f.name not in expected_filenames:
-            f.unlink()
-            cache_meta.pop(f.name, None)
-            pruned.append(f.name)
+    for zip_path in list(output_dir.glob("*.zip")):
+        if zip_path.name not in expected_filenames:
+            zip_path.unlink()
+            cache_meta.pop(zip_path.name, None)
+            pruned.append(zip_path.name)
     if pruned:
         print(f"Pruned {len(pruned)} orphaned plugin ZIP(s):")
         for name in sorted(pruned):
@@ -235,16 +236,16 @@ def download_all(
             cache_meta[filename] = {"version": plugin.get(version, "")}
             status = f"updated (v{cached['version']} -> v{plugin.get(version, '')})" if cached else "fresh"
             return pid, dest, None, status
-        except Exception as e:
-            err = f"{type(e).__name__}: {e}"
-            if isinstance(e, requests.HTTPError) and e.response is not None:
-                err = f"HTTP {e.response.status_code} {plugin.get(url_download, '')} {e}"
+        except Exception as exc:
+            err = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                err = f"HTTP {exc.response.status_code} {plugin.get(url_download, '')} {exc}"
             return pid, dest, err, None
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(task, p): p for p in plugins}
-        for fut in as_completed(futures):
-            pid, dest, err, status = fut.result()
+        futures = {pool.submit(task, plugin): plugin for plugin in plugins}
+        for future in as_completed(futures):
+            pid, dest, err, status = future.result()
             out[pid] = (dest, err, status)
 
     expected_filenames = _expected_zip_filenames(plugins)
@@ -254,7 +255,7 @@ def download_all(
         _save_cache_meta(cache_meta_path, cache_meta)
 
     total = len(plugins)
-    ok = sum(1 for v in out.values() if v[1] is None)
+    ok = sum(1 for result in out.values() if result[1] is None)
     failed = total - ok
     print(f"\nProcessed {ok}/{total} plugins" + (f" ({failed} failed)" if failed else ""))
     for pid, (dest, err, status) in out.items():
