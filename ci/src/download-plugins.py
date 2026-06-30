@@ -18,7 +18,6 @@ Usage examples::
     python ci/src/download-plugins.py --cache-meta cache.json
 
 Environment variables:
-    GITHUB_TOKEN         Required.  GitHub PAT with ``repo`` scope.
     MODE                 Fallback for ``--mode``.
     OUTPUT_DIR           Fallback for ``--output-dir`` (default: plugin_downloads).
     DOWNLOAD_WORKERS     Max concurrent downloads (default: 8).
@@ -79,44 +78,30 @@ def manifest_filename(plugin: dict[str, str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# PluginSelector strategy
+# Plugin selection
 # ---------------------------------------------------------------------------
 
 
-class NewPluginSelector:
-    """Select only newly-submitted plugins (not yet in ``plugins.json``)."""
+def select_new_plugins() -> tuple[list[dict[str, str]], dict[str, Any]]:
+    """Select plugins whose IDs are absent from the published index.
 
-    def select(self) -> tuple[list[dict[str, str]], dict[str, Any]]:
-        """Select plugins whose IDs are absent from the published index.
-
-        Returns:
-            Tuple of ``(new_plugins, metadata_dict)``.
-        """
-        ids = get_new_plugin_submission_ids()
-        by_id = {p[id_name]: p for p in plugin_reader()}
-        plugins = [by_id[i] for i in ids if i in by_id]
-        meta: dict[str, Any] = {"mode": "new", "new_submissions": len(plugins)}
-        if not plugins:
-            print("No new plugin submissions to download")
-        else:
-            print(f"Downloading {len(plugins)} new plugin submission(s)")
-        return plugins, meta
+    Returns:
+        Tuple of ``(new_plugins, metadata_dict)``.
+    """
+    ids = get_new_plugin_submission_ids()
+    by_id = {p[id_name]: p for p in plugin_reader()}
+    plugins = [by_id[i] for i in ids if i in by_id]
+    meta: dict[str, Any] = {"mode": "new", "new_submissions": len(plugins)}
+    if not plugins:
+        print("No new plugin submissions to download")
+    else:
+        print(f"Downloading {len(plugins)} new plugin submission(s)")
+    return plugins, meta
 
 
 # ---------------------------------------------------------------------------
 # GitHub helpers
 # ---------------------------------------------------------------------------
-
-
-def _github_headers() -> dict[str, str]:
-    """Build authorization headers for GitHub API requests.
-
-    Returns:
-        A dict with an ``Authorization`` header set to a ``token``-type
-        GitHub PAT, or an empty dict if ``GITHUB_TOKEN`` is not set.
-    """
-    token = os.getenv("GITHUB_TOKEN", "")
-    return {"Authorization": f"token {token}"}
 
 
 def download_plugin(plugin: dict[str, str], dest: Path) -> None:
@@ -132,8 +117,7 @@ def download_plugin(plugin: dict[str, str], dest: Path) -> None:
     url = plugin[url_download]
 
     timeout = env_int("DOWNLOAD_TIMEOUT_SEC", 120)
-    headers = _github_headers()
-    with requests.get(url, headers=headers, timeout=timeout, stream=True) as resp:
+    with requests.get(url, timeout=timeout, stream=True) as resp:
         resp.raise_for_status()
         with open(dest, "wb") as f:
             for chunk in resp.iter_content(chunk_size=1024 * 256):
@@ -335,15 +319,10 @@ def main() -> None:
     if mode is None:
         mode = "all"
 
-    if not os.getenv("GITHUB_TOKEN"):
-        print("GITHUB_TOKEN is required- set it to a GitHub PAT with repo scope")
-        sys.exit(1)
-
     output_dir = Path(args.output_dir or os.getenv("OUTPUT_DIR", "plugin_downloads"))
 
     if mode == "new":
-        selector = NewPluginSelector()
-        plugins, meta = selector.select()
+        plugins, meta = select_new_plugins()
     else:
         plugins = plugin_reader()
         print(f"Downloading all {len(plugins)} plugins")

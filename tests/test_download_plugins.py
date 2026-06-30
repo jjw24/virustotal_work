@@ -61,12 +61,12 @@ class TestManifestFilename:
 
 
 # ===================================================================
-# NewPluginSelector
+# select_new_plugins
 # ===================================================================
 
 
-class TestNewPluginSelector:
-    def test_select_returns_only_new_plugins(self):
+class TestSelectNewPlugins:
+    def test_returns_only_new_plugins(self):
         all_plugins = [
             {"ID": "1", "Name": "Existing"},
             {"ID": "2", "Name": "New One"},
@@ -76,32 +76,29 @@ class TestNewPluginSelector:
             patch.object(dp, "get_new_plugin_submission_ids", return_value=["2", "3"]),
             patch.object(dp, "plugin_reader", return_value=all_plugins),
         ):
-            selector = dp.NewPluginSelector()
-            plugins, meta = selector.select()
+            plugins, meta = dp.select_new_plugins()
             assert len(plugins) == 2
             assert plugins[0]["ID"] == "2"
             assert plugins[1]["ID"] == "3"
             assert meta["mode"] == "new"
             assert meta["new_submissions"] == 2
 
-    def test_select_returns_empty_when_no_new_submissions(self):
+    def test_returns_empty_when_no_new_submissions(self):
         with (
             patch.object(dp, "get_new_plugin_submission_ids", return_value=[]),
             patch.object(dp, "plugin_reader", return_value=[]),
         ):
-            selector = dp.NewPluginSelector()
-            plugins, meta = selector.select()
+            plugins, meta = dp.select_new_plugins()
             assert plugins == []
             assert meta["new_submissions"] == 0
 
-    def test_select_skips_ids_not_in_reader(self):
+    def test_skips_ids_not_in_reader(self):
         all_plugins = [{"ID": "1", "Name": "Only"}]
         with (
             patch.object(dp, "get_new_plugin_submission_ids", return_value=["1", "nonexistent"]),
             patch.object(dp, "plugin_reader", return_value=all_plugins),
         ):
-            selector = dp.NewPluginSelector()
-            plugins, _ = selector.select()
+            plugins, _ = dp.select_new_plugins()
             assert len(plugins) == 1
             assert plugins[0]["ID"] == "1"
 
@@ -109,16 +106,6 @@ class TestNewPluginSelector:
 # ===================================================================
 # _github_headers
 # ===================================================================
-
-
-class TestGithubHeaders:
-    def test_returns_auth_header_when_token_set(self, monkeypatch):
-        monkeypatch.setenv("GITHUB_TOKEN", "ghp_abc123")
-        assert dp._github_headers() == {"Authorization": "token ghp_abc123"}
-
-    def test_returns_header_with_empty_token_when_not_set(self, monkeypatch):
-        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-        assert dp._github_headers() == {"Authorization": "token "}
 
 
 # ===================================================================
@@ -129,7 +116,6 @@ class TestGithubHeaders:
 class TestDownloadPlugin:
     def test_downloads_successfully(self, tmp_path, monkeypatch):
         monkeypatch.setenv("DOWNLOAD_TIMEOUT_SEC", "30")
-        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
         mock_response = MagicMock(spec=requests.Response)
         mock_response.iter_content.return_value = [b"chunk1", b"", b"chunk2"]
         mock_response.__enter__.return_value = mock_response
@@ -141,7 +127,6 @@ class TestDownloadPlugin:
             dp.download_plugin(plugin, dest)
             mock_requests.get.assert_called_once_with(
                 "https://example.com/plugin.zip",
-                headers={"Authorization": "token ghp_test"},
                 timeout=30,
                 stream=True,
             )
@@ -395,18 +380,7 @@ class TestMainCli:
             dp.url_download: f"https://example.com/{pid}.zip",
         }
 
-    def test_exits_when_no_github_token(self, monkeypatch):
-        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-        monkeypatch.setattr(sys, "argv", ["download-plugins.py"])
-        with (
-            patch.object(dp, "plugin_reader", return_value=[self.make_plugin("1")]),
-            pytest.raises(SystemExit) as exc,
-        ):
-            dp.main()
-        assert exc.value.code == 1
-
     def test_mode_all(self, monkeypatch):
-        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
         monkeypatch.setattr(sys, "argv", ["download-plugins.py"])
         with (
             patch.object(dp, "download_all") as mock_download_all,
@@ -416,15 +390,13 @@ class TestMainCli:
         mock_download_all.assert_called_once()
 
     def test_mode_new(self, monkeypatch):
-        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
         monkeypatch.setenv("MODE", "new")
         monkeypatch.setattr(sys, "argv", ["download-plugins.py"])
         with (
             patch.object(dp, "download_all") as mock_download_all,
-            patch.object(dp, "NewPluginSelector") as mock_selector_cls,
+            patch.object(dp, "select_new_plugins") as mock_select,
         ):
-            mock_selector = mock_selector_cls.return_value
-            mock_selector.select.return_value = (
+            mock_select.return_value = (
                 [self.make_plugin("new1")],
                 {"mode": "new", "new_submissions": 1},
             )
@@ -432,15 +404,13 @@ class TestMainCli:
         mock_download_all.assert_called_once()
 
     def test_mode_new_via_cli_arg(self, monkeypatch):
-        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
         monkeypatch.delenv("MODE", raising=False)
         monkeypatch.setattr(sys, "argv", ["download-plugins.py", "--mode", "new"])
         with (
             patch.object(dp, "download_all") as mock_download_all,
-            patch.object(dp, "NewPluginSelector") as mock_selector_cls,
+            patch.object(dp, "select_new_plugins") as mock_select,
         ):
-            mock_selector = mock_selector_cls.return_value
-            mock_selector.select.return_value = (
+            mock_select.return_value = (
                 [self.make_plugin("cli-new")],
                 {"mode": "new", "new_submissions": 1},
             )
@@ -448,7 +418,6 @@ class TestMainCli:
         mock_download_all.assert_called_once()
 
     def test_exits_when_no_plugins_and_all_mode(self, monkeypatch):
-        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
         monkeypatch.setattr(sys, "argv", ["download-plugins.py"])
         with (
             patch.object(dp, "plugin_reader", return_value=[]),
