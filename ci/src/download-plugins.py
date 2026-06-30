@@ -296,7 +296,7 @@ def download_all(
         elif status and status.startswith("up-to-date"):
             print(f"  From cache -> {dest.name}: {status}")
         elif status and status.startswith("updated"):
-            print(f"  From cache -> {dest.name}: {status}")
+            print(f"  Downloaded & cached -> {dest.name}: {status}")
         else:
             sha = sha256_file(dest)
             print(f"  Downloaded {dest.name} sha256={sha[:12]}...")
