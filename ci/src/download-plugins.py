@@ -59,15 +59,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import requests
-
-from _utils import (
-    get_new_plugin_submission_ids,
-    id_name,
-    plugin_dir,
-    plugin_name,
-    url_download,
-    version,
-)
+from _utils import get_new_plugin_submission_ids, id_name, plugin_dir, plugin_name, url_download, version
 
 DOWNLOAD_WORKERS = 8
 
@@ -75,6 +67,7 @@ DOWNLOAD_WORKERS = 8
 # ---------------------------------------------------------------------------
 # Env helpers
 # ---------------------------------------------------------------------------
+
 
 def env_int(name: str, default: int) -> int:
     """Read an integer from an environment variable.
@@ -95,6 +88,7 @@ def env_int(name: str, default: int) -> int:
 # ---------------------------------------------------------------------------
 # Plugin utilities
 # ---------------------------------------------------------------------------
+
 
 def manifest_filename(plugin: dict[str, str]) -> str:
     """Build the manifest filename for a plugin.
@@ -171,6 +165,7 @@ def load_plugins_by_manifest_names(filenames: list[str]) -> list[dict[str, str]]
 # PluginSelector strategy
 # ---------------------------------------------------------------------------
 
+
 class PluginSelector(ABC):
     """Abstract strategy for selecting which plugins to download."""
 
@@ -231,9 +226,9 @@ def resolve_batch(
         return sorted_plugins, meta
 
     if batch_index is None:
-        import time as _time
         import datetime as _datetime
         from datetime import timezone as _timezone
+
         days = int(_datetime.datetime.now(_timezone.utc).timestamp() // 86400)
         batch_index = days % n_batches
     meta["batch_index"] = batch_index
@@ -304,6 +299,7 @@ class NewPluginSelector(PluginSelector):
         """
         ids = get_new_plugin_submission_ids()
         from _utils import plugin_reader
+
         by_id = {p[id_name]: p for p in plugin_reader()}
         plugins = [by_id[i] for i in ids if i in by_id]
         meta: dict[str, Any] = {"mode": "new", "new_submissions": len(plugins)}
@@ -355,9 +351,11 @@ class PluginSelectorRegistry:
         Returns:
             A decorator that registers the class and returns it unchanged.
         """
+
         def decorator(selector_cls: type[PluginSelector]) -> type[PluginSelector]:
             cls._selectors[mode] = selector_cls
             return selector_cls
+
         return decorator
 
     @classmethod
@@ -397,6 +395,7 @@ PluginSelectorRegistry.register("plugins")(SpecificPluginSelector)
 # ---------------------------------------------------------------------------
 # GitHub helpers
 # ---------------------------------------------------------------------------
+
 
 def _github_headers() -> dict[str, str]:
     """Build authorization headers for GitHub API requests.
@@ -451,6 +450,7 @@ def sha256_file(path: Path) -> str:
 # Cache helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_cache_meta(path: Path) -> dict[str, Any]:
     """Load cache metadata from a JSON file.
 
@@ -493,8 +493,7 @@ def _expected_zip_filenames(plugins: list[dict[str, str]]) -> set[str]:
     return {manifest_filename(p).replace(".json", "") + ".zip" for p in plugins}
 
 
-def _prune_orphans(output_dir: Path, expected_filenames: set[str],
-                   cache_meta: dict[str, Any]) -> None:
+def _prune_orphans(output_dir: Path, expected_filenames: set[str], cache_meta: dict[str, Any]) -> None:
     """Remove ZIP files in *output_dir* not in *expected_filenames*.
 
     Also removes the corresponding entries from *cache_meta*.
@@ -519,6 +518,7 @@ def _prune_orphans(output_dir: Path, expected_filenames: set[str],
 # ---------------------------------------------------------------------------
 # Download step
 # ---------------------------------------------------------------------------
+
 
 def download_all(
     plugins: list[dict[str, str]],
@@ -596,6 +596,7 @@ def download_all(
 # Batch config resolver
 # ---------------------------------------------------------------------------
 
+
 def resolve_batch_config(args: argparse.Namespace) -> tuple[Optional[int], Optional[int], Optional[int]]:
     """Resolve batch parameters from CLI args and environment variables.
 
@@ -625,27 +626,45 @@ def resolve_batch_config(args: argparse.Namespace) -> tuple[Optional[int], Optio
 # CLI / main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     """Parse CLI arguments and orchestrate the download workflow."""
     parser = argparse.ArgumentParser(description="Download Flow Launcher plugin zips")
-    parser.add_argument("--mode", default=None, choices=PluginSelectorRegistry.available_modes(),
-                        help="Selection mode (falls back to MODE env var, defaults to batch)")
-    parser.add_argument("--plugins", default=None,
-                        help="Comma-separated manifest filenames (falls back to PLUGINS env var)")
-    parser.add_argument("--batch-count", type=int, default=None,
-                        help="Number of batches (falls back to BATCH_COUNT env var)")
-    parser.add_argument("--batch-index", type=int, default=None,
-                        help="Current batch index (falls back to BATCH_INDEX env var)")
-    parser.add_argument("--plugins-per-batch", type=int, default=None,
-                        help="Plugins per batch (falls back to PLUGINS_PER_BATCH env var)")
-    parser.add_argument("--start", type=int, default=0,
-                        help="0-based index of first plugin to download (default: 0)")
-    parser.add_argument("--count", type=int, default=0,
-                        help="Number of plugins to download (0 = all remaining from --start)")
-    parser.add_argument("--output-dir", default=None,
-                        help="Output directory (default: plugin_downloads, falls back to OUTPUT_DIR env var)")
-    parser.add_argument("--cache-meta", default=None,
-                        help="Path to cache metadata JSON; skips download if cached version matches manifest")
+    parser.add_argument(
+        "--mode",
+        default=None,
+        choices=PluginSelectorRegistry.available_modes(),
+        help="Selection mode (falls back to MODE env var, defaults to batch)",
+    )
+    parser.add_argument(
+        "--plugins", default=None, help="Comma-separated manifest filenames (falls back to PLUGINS env var)"
+    )
+    parser.add_argument(
+        "--batch-count", type=int, default=None, help="Number of batches (falls back to BATCH_COUNT env var)"
+    )
+    parser.add_argument(
+        "--batch-index", type=int, default=None, help="Current batch index (falls back to BATCH_INDEX env var)"
+    )
+    parser.add_argument(
+        "--plugins-per-batch",
+        type=int,
+        default=None,
+        help="Plugins per batch (falls back to PLUGINS_PER_BATCH env var)",
+    )
+    parser.add_argument("--start", type=int, default=0, help="0-based index of first plugin to download (default: 0)")
+    parser.add_argument(
+        "--count", type=int, default=0, help="Number of plugins to download (0 = all remaining from --start)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory (default: plugin_downloads, falls back to OUTPUT_DIR env var)",
+    )
+    parser.add_argument(
+        "--cache-meta",
+        default=None,
+        help="Path to cache metadata JSON; skips download if cached version matches manifest",
+    )
     args = parser.parse_args()
 
     if args.plugins is None:
@@ -665,8 +684,9 @@ def main() -> None:
     output_dir = Path(args.output_dir or os.getenv("OUTPUT_DIR", "plugin_downloads"))
 
     bc, bi, ppb = resolve_batch_config(args)
-    selector = PluginSelectorRegistry.create(args.mode, batch_count=bc, batch_index=bi,
-                                              plugins_per_batch=ppb, raw=args.plugins)
+    selector = PluginSelectorRegistry.create(
+        args.mode, batch_count=bc, batch_index=bi, plugins_per_batch=ppb, raw=args.plugins
+    )
     plugins, meta = selector.select()
     if not plugins:
         print("No plugins to download")
@@ -676,7 +696,7 @@ def main() -> None:
     count = args.count
     if start > 0 or count > 0:
         if count > 0:
-            plugins = plugins[start:start + count]
+            plugins = plugins[start : start + count]
         else:
             plugins = plugins[start:]
         meta["slice_start"] = start
