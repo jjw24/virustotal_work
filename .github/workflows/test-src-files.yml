@@ -18,7 +18,7 @@ jobs:
             src_files:
               - 'ci/src/download-plugins.py'
 
-  test:
+  unit-tests:
     needs: changes
     if: needs.changes.outputs.src_files == 'true'
     runs-on: ubuntu-latest

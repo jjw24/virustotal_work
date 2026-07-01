@@ -23,7 +23,7 @@ jobs:
             plugins:
               - 'plugins/**'
 
-  vt-scan-plugins:
+  vt-plugin-scan:
     needs: changes
     if: needs.changes.outputs.plugins == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
