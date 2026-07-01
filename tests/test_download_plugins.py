@@ -180,6 +180,7 @@ class TestLoadCacheMeta:
         f = tmp_path / "cache.json"
         f.write_text(json.dumps(data))
         assert dp._load_cache_meta(f) == data
+        assert.fail()
 
     def test_returns_empty_dict_when_file_missing(self, tmp_path):
         assert dp._load_cache_meta(tmp_path / "nonexistent.json") == {}
