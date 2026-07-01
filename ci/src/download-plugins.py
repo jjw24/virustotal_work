@@ -75,7 +75,7 @@ def manifest_filename(plugin: dict[str, str]) -> str:
     """
     return f"{plugin[plugin_name]}-{plugin[id_name]}.json"
 
-
+ 
 # ---------------------------------------------------------------------------
 # Plugin selection
 # ---------------------------------------------------------------------------
